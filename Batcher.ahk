@@ -1,8 +1,9 @@
 ; 命令行批量参数执行 (GUI)
 #SingleInstance Force
+#NoTrayIcon
 
 AppName := "Batcher"
-AppVer := "1.1.0"
+AppVer := "1.2.0"
 AppCopyRight := "Copyright (c) 2025 CataeroGong"
 IniFile := A_ScriptDir . "\" . A_ScriptName . ".ini"
 
@@ -13,6 +14,7 @@ ST_N := "*" ; new
 ST_R := "#" ; running
 ST_P := "=" ; pause
 ST_E := "." ; end
+ST_X := "X" ; error
 
 FLAG_STOP := true
 RND := 0
@@ -29,39 +31,44 @@ Main:
 
 InitGUI:
 {
+	Gui, 1:New, +OwnDialogs, %AppName% v%AppVer%
 	Gui, Add, Text, xm ym, 命令执行路径
 	Gui, Add, Edit, xm y+m w800 vEdtDir
 	Gui, Add, Text, xm y+m, 命令模板（模板中使用
 	Gui, Add, Edit, x+1 yp-3 h20 w50 vEdtPH gOnEdtPH, %PH%
 	Gui, Add, Text, x+1 yp+3, 代表参数插入位置，如与命令中的文字有重复，可在这里修改）
 	Gui, Add, Edit, xm y+m w800 vEdtCmd
-	Gui, Add, Text, xm y+m, 参数
-	Gui, Add, Edit, xm y+m w800 vEdtParam
-	Gui, Add, Button, xm y+m Default gOnBtnAdd, ↓ 加入队列 ↓
+	Gui, Add, Text, xm y+m, 参数（可以输入多行，每行文字生成一条命令）
+	Gui, Add, Edit, xm y+m r5 w800 -Wrap +HScroll vEdtParam gOnEdtParam
+	Gui, Add, Button, xm y+m gOnBtnAdd, ↓ 加入队列 ↓
 	Gui, Add, Checkbox, x+20 yp h24 vChkClipboard gOnChkClipboard, 监控剪贴板（实时开关）：将剪贴板中文字作为参数自动生成命令，并清空剪贴板。多行文字生成多条命令。
-	Gui, Add, Text, xm y+m, 【状态说明】"%ST_N%":等待执行 "%ST_R%":正在执行 "%ST_P%":暂不执行 "%ST_E%":执行完毕
-	Gui, Add, ListView, xm y+m r10 w800 AltSubmit Grid NoSort -Multi NoSortHdr -LV0x10 vLstCmds gOnLstCmds, 状态|命令|路径
-	LV_ModifyCol(2, 500)
-	LV_ModifyCol(3, 400)
-	Gui, Add, Text, xm y+10, 右键:暂不执行 双击:等待执行 右键双击:执行完毕 Ctrl+单击:编辑命令
+	Gui, Add, GroupBox, xm y+m h1 w800
+	Gui, Add, ListView, xm y+10 r10 w800 AltSubmit Grid NoSort -Multi NoSortHdr -LV0x10 vLstCmds gOnLstCmds, 状态|命令|路径|信息
+	LV_ModifyCol(2, 400)
+	LV_ModifyCol(3, 300)
+	LV_ModifyCol(4, 200)
+	Gui, Add, Text, xm y+m, 【状态说明】"%ST_N%":等待执行 "%ST_R%":正在执行 "%ST_P%":暂不执行 "%ST_E%":执行完毕 "%ST_X%":发生错误
+	Gui, Add, Text, xm y+10,【操作】右键:暂不执行 双击:等待执行 右键双击:执行完毕 Ctrl+单击:编辑命令
 	Gui, Add, Button, x+20 yp-5 gOnBtnSetAll vBtnSetAll, 全部置为
 	Gui, Add, DropDownList, x+1 yp w80 vDdlTaskState, 等待执行||暂不执行|执行完毕
-	Gui, Add, Button, x+100 yp gOnBtnClrDone vBtnClrDone, 清除已执行
+	Gui, Add, Button, x+20 yp gOnBtnClrDone vBtnClrDone, 清除已执行
 	Gui, Add, Button, x+m yp gOnBtnClrAll vBtnClrAll, 清空队列
-	Gui, Add, Text, xm y+20, 命令窗口大小
+	Gui, Add, GroupBox, xm y+m h1 w800
+	Gui, Add, Text, xm y+15, 命令窗口大小
 	Gui, Add, DropDownList, x+1 yp-3 w50 vDdlWinSize, -|Min||Max|Hide
 	Gui, Add, Checkbox, x+m yp h24 vChkParallel, 并行执行
 	Gui, Add, Button, x+m yp gOnBtnStart vBtnStart, 执行队列
 	Gui, Add, Button, x+m yp Disabled gOnBtnStop vBtnStop, 停止执行
-	Gui, Add, Button, x+300 yp gOnBtnAbout, 关于(&A)
-	Gui, Add, Button, x+m yp vBtnExit gOnBtnExit, 退出(&X)
-    Gui, Add, StatusBar, ,
+	Gui, Add, Button, x1 y1 Hidden h20 w20 gOnBtnAbout vBtnAbout, i
+    Gui, Add, StatusBar
     SB_SetParts(50, 500)
 	ShowProcess()
 
-	Gui, +OwnDialogs
-	Gui, Show, , %AppName% v%AppVer%
-
+	GuiControlGet, lst, Pos, LstCmds
+	GuiControlGet, btn, Pos, BtnAbout
+	GuiControl, Move, BtnAbout, % "x" . (lstX + lstW - btnW) . " ym"
+	GuiControl, Show, BtnAbout
+	Gui, Show
 
 	Return
 }
@@ -149,35 +156,51 @@ NewTask(dir, cmd, param)
 	{
 		cmd := StrReplace(cmd, PH, param)
 		idx := LV_Add(, ST_N, cmd, dir)
-		LV_Modify(idx, "BackColor" color)
+		Return true
 	}
-	Return
+	Return false
 }
 
-OnBtnAdd:
+NewTasks(params)
 {
 	GuiControlGet, dir, , EdtDir
 	GuiControlGet, cmd, , EdtCmd
+	cnt := 0
+	Loop, Parse, params, `n, `r`t%A_Space%
+	{
+		If (NewTask(dir, cmd, A_LoopField))
+			cnt ++
+	}
+	Return cnt
+}
+OnEdtParam:
+{
+	If (GetKeyState("Ctrl") && GetKeyState("Enter"))
+	{
+		Gosub, OnBtnAdd
+	}
+	Return
+}
+OnBtnAdd:
+{
 	GuiControlGet, param, , EdtParam
-	NewTask(dir, cmd, param)
+	NewTasks(param)
 	GuiControl, , EdtParam,
 	GuiControl, Focus, EdtParam
 	Return
 }
 
-MonitorClipboard()
+MonitorClipboard:
 {
-	Global PH, ST_N, IniFile, AppName
 	ToolTip, %AppName% 正在监控剪贴板
 	If (Clipboard)
 	{
-		GuiControlGet, dir, , EdtDir
-		GuiControlGet, cmd, , EdtCmd
-		Loop, Parse, Clipboard, `n, `r
-		{
-			NewTask(dir, cmd, A_LoopField)
-		}
+		cnt := NewTasks(Clipboard)
 		Clipboard := ""
+		If (cnt)
+		{
+			ToolTip, 新建 %cnt% 个命令
+		}
 	}
 	Return
 }
@@ -244,39 +267,38 @@ OnBtnSetAll:
 	}
 	Return
 }
-EdtCmd:
+ShowCmdEditWin(idx)
 {
-	idx := LV_GetNext(0, "F")
+	Global W3EdtIdx, W3EdtDir, W3EdtCmd
 	If (idx > 0)
 	{
 		LV_GetText(cmd, idx, 2)
 		LV_GetText(dir, idx, 3)
-		Gui, 3:New, +Owner1 +ToolWindow +Border
-		Gui, 3:Add, Text, Hidden Disabled vEdtIdx, %idx%
+		Gui, 3:New, +Owner +ToolWindow +Border
+		Gui, 3:Add, Text, Hidden Disabled vW3EdtIdx, %idx%
 		Gui, 3:Add, Text, xm ym, 执行路径
-		Gui, 3:Add, Edit, xm y+m w600 vEdtDir
+		Gui, 3:Add, Edit, xm y+m w600 vW3EdtDir
 		Gui, 3:Add, Text, xm y+m, 命令
-		Gui, 3:Add, Edit, xm y+m w600 vEdtCmd
-		Gui, 3:Add, Button, xm y+m Default, Ok
+		Gui, 3:Add, Edit, xm y+m w600 vW3EdtCmd
+		Gui, 3:Add, Button, xm y+m, Ok
 		Gui, 3:Add, Button, x+m yp, Cancel
 		Gui, 1:+Disabled
 		Gui, 3:Show, AutoSize, 编辑命令
-		GuiControl, 3:, EdtDir, %dir%
-		GuiControl, 3:, EdtCmd, %cmd%
-		GuiControl, 3:Focus, EdtCmd
+		GuiControl, 3:, W3EdtDir, %dir%
+		GuiControl, 3:, W3EdtCmd, %cmd%
+		GuiControl, 3:Focus, W3EdtCmd
 	}
-	Return
+	Return WinActive("A")
 }
 3ButtonOk:
 {
-	GuiControlGet, idx, 3:, EdtIdx
-	GuiControlGet, dir, 3:, EdtDir
-	GuiControlGet, cmd, 3:, EdtCmd
-	Gui, 1:-Disabled
-	Gui, 3:Destroy
+	GuiControlGet, idx, 3:, W3EdtIdx
+	GuiControlGet, dir, 3:, W3EdtDir
+	GuiControlGet, cmd, 3:, W3EdtCmd
 	Gui, 1:Default
 	LV_Modify(idx, "Col2", cmd)
 	LV_Modify(idx, "Col3", dir)
+	Gosub, 3GuiClose
 	Return
 }
 3GuiClose:
@@ -295,17 +317,17 @@ OnLstCmds:
 		Switch A_GuiEvent
 		{
 			Case "DoubleClick":  ; 置为“等待执行”
-				If (st == ST_P || st == ST_E)
+				If (st == ST_P || st == ST_E || st == ST_X)
 					st := ST_N
 				Else
 					st := ""
 			Case "RightClick":  ; “等待执行”命令置为“暂不执行”
-				If (st == ST_N)
+				If (st == ST_N || st == ST_X)
 					st := ST_P
 				Else
 					st := ""
 			Case "R":  ; 置为“执行完毕”
-				If (st == ST_N || st == ST_P)
+				If (st == ST_N || st == ST_P || st == ST_X)
 					st := ST_E
 				Else
 					st := ""
@@ -313,8 +335,10 @@ OnLstCmds:
 				If (GetKeyState("Ctrl") && st != ST_R)
 				{
 					LV_Modify(A_EventInfo, "Col1", ST_P)
-					Gosub, EdtCmd
+					WinWaitClose, % "ahk_id " . ShowCmdEditWin(A_EventInfo)
+					Gui, 1:Default
 					LV_Modify(A_EventInfo, "Col1", st)
+					st := ""
 				}
 			Default:
 				st := ""
@@ -341,7 +365,7 @@ ShowProcess(cmd:="", dir:="")
 }
 Worker()
 {
-	Global FLAG_STOP, IniFile, AppName, ST_N, ST_R, ST_P, ST_E
+	Global FLAG_STOP, IniFile, AppName, ST_N, ST_R, ST_P, ST_E, ST_X
 	If (!FLAG_STOP)
 	{
 		ShowRunning(true)
@@ -370,15 +394,37 @@ Worker()
 			LV_GetText(dir, A_Index, 3)
 			st := ST_R
 			LV_Modify(A_Index, "Col1", st)
-			; IniWrite, % PackTask(st, cmd, dir), %IniFile%, %AppName%.Tasks, %A_Index%
+			LV_Modify(A_Index, "Col4", "")
 			ShowProcess(cmd, dir)
-			If (parallel)
-				Run, %cmd%, %dir%, %winsize%
+			d := FileExist(dir)
+			If (!d)
+			{
+				LV_Modify(A_Index, "Col4", "执行路径不存在，自动创建")
+				FileCreateDir, %dir%
+				d := FileExist(dir)
+			}
+			If (InStr(d, "D"))
+			{
+				Try
+				{
+					If (parallel)
+						Run, %cmd%, %dir%, %winsize%
+					Else
+						RunWait, %cmd%, %dir%, %winsize%
+					st := ST_E
+				}
+				Catch e
+				{
+					LV_Modify(A_Index, "Col4", "发生错误：" . e.Message . " " . e.Extra)
+					st := ST_X
+				}
+			}
 			Else
-				RunWait, %cmd%, %dir%, %winsize%
-			st := ST_E
+			{
+				LV_Modify(A_Index, "Col4", "执行路径不是一个目录")
+				st := ST_X
+			}
 			LV_Modify(A_Index, "Col1", st)
-			; IniWrite, % PackTask(st, cmd, dir), %IniFile%, %AppName%.Tasks, %A_Index%
 			ShowProcess()
 			need_save := true
 			Sleep, 100
@@ -418,7 +464,6 @@ OnBtnStop:
 }
 
 GuiClose:
-OnBtnExit:
 {
 	Gosub, OnBtnStop
 	Gosub, SaveCfg
@@ -432,25 +477,23 @@ OnBtnExit:
 OnBtnAbout:
 {
 	Gui, 1:+OwnDialogs
-	Gui, 2:+Owner1 +ToolWindow
-	Gui, 2:Add, Picture, xm ym Icon1, %A_ScriptName%
-	Gui, 2:Font, Bold
-	Gui, 2:Add, Text, xm+40 yp+20, %AppName% v%AppVer%
-	Gui, 2:Font
-	Gui, 2:Add, Text, , %AppCopyRight%
-	Gui, 2:Add, Button, y+20 gABOUTOK Default w75, &OK
+	Gui, ABOUT:+Owner +ToolWindow
+	Gui, ABOUT:Font, Bold
+	Gui, ABOUT:Add, Text, , %AppName% v%AppVer%
+	Gui, ABOUT:Font
+	Gui, ABOUT:Add, Text, , %AppCopyRight%
+	Gui, ABOUT:Add, Text, ,
 
-	Gui, 2:Show, , %AppName% - About
+	Gui, ABOUT:Show, , About
 
 	Gui, 1:+Disabled
 
 	return
 }
-2GuiClose:
-2GuiEscape:
-ABOUTOK:
+ABOUTGuiClose:
+ABOUTGuiEscape:
 {
 	Gui, 1:-Disabled
-	Gui, 2:Destroy
+	Gui, ABOUT:Destroy
 	return
 }
