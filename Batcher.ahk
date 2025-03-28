@@ -3,7 +3,7 @@
 #NoTrayIcon
 
 AppName := "Batcher"
-AppVer := "1.2.0"
+AppVer := "1.2.1"
 AppCopyRight := "Copyright (c) 2025 CataeroGong"
 IniFile := A_ScriptDir . "\" . A_ScriptName . ".ini"
 
@@ -396,12 +396,19 @@ Worker()
 			LV_Modify(A_Index, "Col1", st)
 			LV_Modify(A_Index, "Col4", "")
 			ShowProcess(cmd, dir)
-			d := FileExist(dir)
-			If (!d)
+			If (dir)
 			{
-				LV_Modify(A_Index, "Col4", "执行路径不存在，自动创建")
-				FileCreateDir, %dir%
 				d := FileExist(dir)
+				If (!d)
+				{
+					LV_Modify(A_Index, "Col4", "执行路径不存在，自动创建")
+					FileCreateDir, %dir%
+					d := FileExist(dir)
+				}
+			}
+			Else
+			{
+				d := "D"
 			}
 			If (InStr(d, "D"))
 			{
