@@ -3,7 +3,7 @@
 #NoTrayIcon
 
 AppName := "Batcher"
-AppVer := "1.2.1"
+AppVer := "1.2.2"
 AppCopyRight := "Copyright (c) 2025 CataeroGong"
 IniFile := A_ScriptDir . "\" . A_ScriptName . ".ini"
 
@@ -29,11 +29,17 @@ Main:
 	Return
 }
 
+SetEditCueBanner(HWND, Cue)
+{
+	Static EM_SETCUEBANNER := (0x1500 + 1)
+	Return DllCall("User32.dll\SendMessageW", "Ptr", HWND, "Uint", EM_SETCUEBANNER, "Ptr", True, "WStr", Cue)
+}
+
 InitGUI:
 {
 	Gui, 1:New, +OwnDialogs, %AppName% v%AppVer%
 	Gui, Add, Text, xm ym, 命令执行路径
-	Gui, Add, Edit, xm y+m w800 vEdtDir
+	Gui, Add, Edit, xm y+m w800 vEdtDir hwndHwndEdtDir
 	Gui, Add, Text, xm y+m, 命令模板（模板中使用
 	Gui, Add, Edit, x+1 yp-3 h20 w50 vEdtPH gOnEdtPH, %PH%
 	Gui, Add, Text, x+1 yp+3, 代表参数插入位置，如与命令中的文字有重复，可在这里修改）
@@ -69,6 +75,8 @@ InitGUI:
 	GuiControl, Move, BtnAbout, % "x" . (lstX + lstW - btnW) . " ym"
 	GuiControl, Show, BtnAbout
 	Gui, Show
+
+	SetEditCueBanner(HwndEdtDir, A_WorkingDir)
 
 	Return
 }
@@ -154,6 +162,8 @@ NewTask(dir, cmd, param)
 	Global PH, IniFile, AppName, ST_N
 	if (cmd && param)
 	{
+		if (!dir)
+			dir := A_WorkingDir
 		cmd := StrReplace(cmd, PH, param)
 		idx := LV_Add(, ST_N, cmd, dir)
 		Return true
